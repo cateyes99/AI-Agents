@@ -20,6 +20,16 @@ Write-Output "=== Investigation: rewrite '$OldText' on '$Branch' (tip $branchTip
 Write-Output "checked-out branch : $current (target does NOT need checkout; work tree must be clean)"
 Write-Output "work tree          : $(if ($dirty) { "DIRTY: $($dirty -join '; ')" } else { 'clean' })"
 
+# --- toplevel: the Phase 3 filter-branch MUST run from there ---
+$toplevel = git rev-parse --show-toplevel
+$prefix = git rev-parse --show-prefix
+Write-Output "repo toplevel      : $toplevel"
+if ($prefix) {
+    Write-Output "  cwd is a SUBDIRECTORY of the repo (prefix '$prefix'). Phase 3 filter-branch"
+    Write-Output "  MUST run from the toplevel (cd '$toplevel') or it aborts with:"
+    Write-Output "    fatal: could not open '<prefix>nul' for reading ... run from the toplevel"
+}
+
 # --- affected commits ---
 $affected = @(git rev-list "$Branch" | Where-Object { (git log -1 --format=%B $_) -match [regex]::Escape($OldText) })
 Write-Output "`n=== Affected commits: $($affected.Count) ==="

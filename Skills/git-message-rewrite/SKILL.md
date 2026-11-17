@@ -9,8 +9,10 @@ disable-model-invocation: false
 # Git Commit Message Rewrite (filter-branch, no checkout)
 
 Rewrite messages on a branch (typically `master`) without checking it out, using
-`git filter-branch --msg-filter`. Battle-tested twice on this repo (Nividia→Nvidia
-Nov 9; `cateyes99/cline+DS4.1Flash`→`cateyes99/DS4.1Flash` Nov 16).
+`git filter-branch --msg-filter`. Battle-tested three times (Nividia→Nvidia Nov 9;
+`cateyes99/cline+DS4.1Flash`→`cateyes99/DS4.1Flash` Nov 16; `on OpenCode`→`via
+OpenCode` inside `OpenCodeCLI+DS4.1F …` subjects Nov 18 — first run with spaces in
+the text and with the cwd inside a subdirectory of the repo).
 
 ## Hard rules (non-negotiable)
 
@@ -28,6 +30,12 @@ Nov 9; `cateyes99/cline+DS4.1Flash`→`cateyes99/DS4.1Flash` Nov 16).
 5. **Report signature loss honestly**: every commit inside the range loses its GPG
    signature (filter-branch strips `gpgsig`). Inventory them BEFORE the rewrite so
    the user can decide.
+6. **Run Phase 3 from the repo toplevel.** `git filter-branch` refuses to run from
+   a subdirectory of the work tree — it aborts with the confusing
+   `fatal: could not open '<subdir>/nul' for reading: No such file or directory`
+   followed by `You need to run this command from the toplevel of the working
+   tree`. If the cwd is a workspace folder nested inside the repo, `cd` to
+   `git rev-parse --show-toplevel` first (investigate.ps1 prints it).
 
 ## Procedure
 
@@ -42,8 +50,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File <skill-dir>/scripts/investig
 It reports: affected commits (subjects + parents), whether all are merges, the
 earliest affected commit (the anchor), range size, GPG-signed commits inside the
 range (will lose signatures) vs below it (preserved), stale `refs/original` refs
-(blocking), and work-tree cleanliness. **Stop and present findings to the user
-before rewriting** — especially the signature-loss list.
+(blocking), work-tree cleanliness, and the repo toplevel (Phase 3 must run from
+there). **Stop and present findings to the user before rewriting** — especially
+the signature-loss list.
+
+If the user supplied an anchor SHA as an argument, cross-check it against the
+investigation: it must equal the earliest affected commit (or its parent). If it
+disagrees, trust the investigation and say so — the user's SHA may be stale or
+abbreviated from a different history.
 
 ### Phase 2 — Backup
 
@@ -52,6 +66,11 @@ git branch <branch>_before_<fixname> <branch>
 ```
 
 ### Phase 3 — Rewrite (no checkout needed)
+
+**Run from the repo toplevel** (`git rev-parse --show-toplevel`), not from a
+subdirectory — see hard rule 6. From a subdirectory filter-branch aborts with
+`fatal: could not open '<subdir>/nul' for reading` before touching anything
+(harmless, but retry from the toplevel).
 
 Normal case (anchor has a parent):
 
@@ -77,6 +96,21 @@ strips the inner double quotes, so sh receives `s|a|b|g` and treats `|` as pipes
 → `g: command not found`, and the run aborts harmlessly. Use **comma delimiters,
 no quotes**: `sed s,a,b,g` — commas are inert in both PowerShell and sh. If the
 text itself contains commas, use another inert delimiter (e.g. `s@a@b@g`).
+
+**Spaces in OLD/NEW (verified Nov 18):** `sed s,a b,c d,g` word-splits in sh —
+the filter becomes `sed s,a` plus a stray `b,c` argument and silently matches
+nothing (or errors). Backslash-escape every space: `sed s,a\ b,c\ d,g`. The
+backslashes survive PowerShell → git → sh intact and sh un-escapes them inside
+the sed script. Example from a real run:
+
+```powershell
+git filter-branch --msg-filter 'sed s,OpenCodeCLI+DS4\.1F\ on\ OpenCode,OpenCodeCLI+DS4.1F\ via\ OpenCode,g' -- 9fed2b7~1..DS4.1Flash-improvement
+```
+
+**Regex escaping in the sed pattern (BRE):** escape `.` as `\.` (it matches any
+character otherwise — `DS4.1F` would also match `DS4x1F`). Do NOT escape `+` —
+in POSIX BRE `+` is literal, while `\+` is a GNU quantifier ("one or more of
+the previous atom") and would corrupt the match.
 
 filter-branch updates the target ref directly; the checked-out branch and work
 tree are untouched (it only requires a clean work tree).
@@ -127,3 +161,12 @@ second rollback path until then).
   to `merge -c` messages. Prefer filter-branch for pure message rewrites.
 - Ground-truth signature check is `git cat-file commit <sha>` matching `^gpgsig `
   — `%G?` can report `N` for genuinely signed commits when the keyring is absent.
+- **Workspace ≠ repo root:** VS Code workspaces are often a subdirectory of the
+  git repo (here: workspace `Cline+DS4.1F`, repo root `E:\Source\Solar-System-Explorer`).
+  Any command that must run at the toplevel (filter-branch, some hooks) needs an
+  explicit `cd` — `git rev-parse --show-toplevel` / `--show-prefix` tell you where
+  you are. investigate.ps1 now prints both.
+- **A failed filter-branch leaves nothing behind:** the toplevel abort happens
+  before the `.git-rewrite` tempdir is created, so a failed run needs no cleanup —
+  just fix the cause and re-run. (If a mid-rewrite failure ever leaves
+  `.git-rewrite` behind, `git filter-branch` refuses to start until it is removed.)

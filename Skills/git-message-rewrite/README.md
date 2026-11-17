@@ -5,7 +5,7 @@ typos, renaming branch names quoted in merge commit messages, correcting text
 across history — using `git filter-branch --msg-filter`, **without checking out
 the target branch**.
 
-Distilled from two production rewrites in the
+Distilled from three production rewrites in the
 [Solar-System-Explorer](https://github.com/cateyes99/Solar-System-Explorer)
 repository:
 
@@ -13,6 +13,7 @@ repository:
 |---|---|---|
 | 2026-11-09 | `Nividia` → `Nvidia` (subjects + merge bodies) | 26 commits |
 | 2026-11-16 | `cateyes99/cline+DS4.1Flash` → `cateyes99/DS4.1Flash` (merge subjects) | 26 merge commits |
+| 2026-11-18 | `on OpenCode` → `via OpenCode` inside `OpenCodeCLI+DS4.1F …` subjects | 4 commits (2 merges) |
 
 ## Why this exists
 
@@ -113,11 +114,31 @@ git filter-branch --msg-filter 'sed s,OLD,NEW,g' master        # no range, no '~
 These were each discovered the hard way; the skill exists partly so they are
 never re-discovered:
 
+- **filter-branch must run from the repo toplevel.** From a subdirectory of the
+  work tree it aborts before touching anything with the baffling
+  `fatal: could not open '<subdir>/nul' for reading: No such file or directory`
+  followed by `You need to run this command from the toplevel of the working
+  tree`. This bites whenever the editor workspace is a folder *nested inside*
+  the repo (the 2026-11-18 run hit exactly this: workspace `Cline+DS4.1F`, repo
+  root `E:\Source\Solar-System-Explorer`). **Fix:** `cd (git rev-parse
+  --show-toplevel)` first; `investigate.ps1` now prints the toplevel and warns
+  when the cwd has a prefix. A toplevel abort leaves no `.git-rewrite` tempdir
+  behind — just re-run from the right directory.
 - **PowerShell strips inner double quotes** from arguments passed to git, which
   routes filter commands through `sh`. So `--msg-filter 'sed "s|a|b|g"'` arrives
   as `sed s|a|b|g` — `sh` reads the pipes as **pipes** and fails with
   `g: command not found`. **Fix:** comma delimiters, no quotes — `sed s,a,b,g`.
   Commas are inert in both PowerShell and sh.
+- **Spaces in OLD/NEW word-split in sh.** `sed s,a b,c d,g` becomes `sed s,a`
+  plus stray arguments — the substitution silently matches nothing. **Fix:**
+  backslash-escape every space (`sed s,a\ b,c\ d,g`); the backslashes survive
+  PowerShell → git → sh and sh un-escapes them inside the sed script. Verified
+  in the 2026-11-18 rewrite (first one with multi-word text).
+- **BRE regex escaping in the sed pattern:** escape `.` as `\.` (unescaped it
+  matches any character), but do NOT escape `+` — in POSIX BRE `+` is literal
+  while `\+` is a GNU quantifier ("one or more of the previous atom") and
+  corrupts the match. So `DS4\.1F` is right; `DS4\.1F\ on\ OpenCode` keeps `+`
+  bare.
 - **`--root` is NOT a filter-branch option.** It exists only as a *rev-list*
   option (filter-branch forwards everything after `--` to `git rev-list`), and
   the script's own option parser rejects a bare `--root` with a usage error.
@@ -156,6 +177,19 @@ Both scripts were validated against the 2026-11-16 rewrite ground truth:
 - `verify.ps1` against the rewritten branch reported **ALL CHECKS PASSED**:
   0 old-text occurrences, 158/158 commits, 39/39 merges, empty tree diff,
   13 → 9 signatures, bottom-of-history byte-identical.
+
+Re-validated against the 2026-11-18 rewrite (first run with multi-word text and
+a nested-workspace cwd):
+
+- `investigate.ps1` reported 4 affected commits (2 merges), anchor `9fed2b7~1`
+  = `4842848`, 2 signatures at risk, 11 preserved — and now prints the repo
+  toplevel with a subdirectory warning.
+- The toplevel trap was hit live: filter-branch from the workspace subdirectory
+  aborted with `could not open 'Cline+DS4.1F/nul'`; re-running from the repo
+  root succeeded on the first try.
+- `verify.ps1` reported **ALL CHECKS PASSED**: 0 old-text occurrences, 168/168
+  commits, 43/43 merges, empty tree diff, 13 → 11 signatures, 164 unchanged
+  hashes, bottom-of-history identical.
 
 The root-commit edge case was validated empirically in scratch repositories:
 

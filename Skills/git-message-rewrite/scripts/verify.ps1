@@ -73,7 +73,6 @@ if ($Anchor -ne 'NONE') {
 }
 
 $others = git for-each-ref refs/heads --format='%(refname:short)' | Where-Object { $_ -ne $Branch -and $_ -ne $BackupBranch }
-$moved = @($others | Where-Object { $before = Get-Content ".git\refs\heads\$_" -ErrorAction SilentlyContinue; $false })
 Write-Output "  other local branches : $($others -join ', ')"
 Write-Output "  (verify manually they still point at expected tips: git for-each-ref refs/heads)"
 
