@@ -170,3 +170,23 @@ second rollback path until then).
   before the `.git-rewrite` tempdir is created, so a failed run needs no cleanup —
   just fix the cause and re-run. (If a mid-rewrite failure ever leaves
   `.git-rewrite` behind, `git filter-branch` refuses to start until it is removed.)
+- **msg-filter quoting workaround (script file):** If the inline `sed` form keeps
+  failing because backslash-escaped spaces (`\ `) don't survive the PowerShell →
+  git → sh shell layers (symptom: `sed: unterminated 's' command` or
+  `fatal: bad revision 'encode\'`), write the sed command to a small shell script
+  and point `--msg-filter` at it instead. This bypasses all quoting/escaping
+  layers entirely:
+  ```powershell
+  # Create the filter script (spaces unescaped — no shell layers involved)
+  Set-Content -Path .git-msgfilter.sh -Value @'
+  #!/bin/sh
+  sed 's,: encode 2026-11-18 rewrite lessons,: encode 2026-11-18 rewrite lessons for git-message-rewrite,g'
+  '@
+  # Run filter-branch using the script (run from repo toplevel)
+  $env:FILTER_BRANCH_SQUELCH_WARNING = 1
+  git filter-branch --msg-filter 'e:/Source/AI-Agents/.git-msgfilter.sh' -- <anchor>~1..<branch>
+  # Clean up
+  Remove-Item -Force .git-msgfilter.sh
+  ```
+  Use forward slashes in the script path (`e:/Source/...`), not backslashes.
+  Delete the script after the rewrite succeeds.
